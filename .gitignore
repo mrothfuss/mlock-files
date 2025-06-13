@@ -1,0 +1,3 @@
+mlock-files
+*.swp
+*.o
