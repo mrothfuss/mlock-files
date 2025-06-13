@@ -98,7 +98,7 @@ int load_file(char *path, struct lock_data **data, int *data_allocated, int *dat
 	for(i = 0; i < d->len; i++) {
 		sum += ((uint8_t*)d->addr)[i];
 	}
-	fprintf(stderr, "%s: %s loaded (sum: %08lX)\n", PROGRAM_NAME, path, sum);
+	fprintf(stderr, "%s[%d]: %s loaded (sum: %08lX)\n", PROGRAM_NAME, (*data_used)-1, path, sum);
 	return 0;
 }
 
