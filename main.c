@@ -27,7 +27,8 @@ void signal_handle(int sig) {
 void usage(char *prog) {
 	fprintf(stderr, "usage: %s [options] [files]\n\n", prog);
 	fprintf(stderr, "\t-f <files.txt>       read files from a list\n");
-	fprintf(stderr, "\t-D                   fork after loading all files\n");
+	fprintf(stderr, "\t-D <pid.file>        fork after loading all files\n");
+	fprintf(stderr, "\t-l                   lazy mode, do not stop if a file fails to load\n");
 	fprintf(stderr, "\n");
 }
 
@@ -97,21 +98,26 @@ int load_file(char *path, struct lock_data **data, int *data_allocated, int *dat
 	for(i = 0; i < d->len; i++) {
 		sum += ((uint8_t*)d->addr)[i];
 	}
-	fprintf(stderr, "%s: %s loaded (sum: %lu)\n", PROGRAM_NAME, path, sum);
+	fprintf(stderr, "%s: %s loaded (sum: %08lX)\n", PROGRAM_NAME, path, sum);
 	return 0;
 }
 
 int main(int argc, char **argv) {
+	// fork
+	int fd[2];
+	pid_t p;
+	int return_value = 0;
 	// sleep
 	sigset_t sig_mask;
 	// args
 	int opt;
+	int lazy = 0;
 	char *fl_path = NULL;
 	FILE *fl_fp = NULL;
 	char *fl_line = NULL;
 	size_t fl_size = 0;
 	ssize_t fl_read = 0;
-	int daemonize = 0;
+	char *daemonize = NULL;
 	// data
 	struct lock_data *data = NULL;
 	int data_allocated = 0;
@@ -120,13 +126,16 @@ int main(int argc, char **argv) {
 	int i;
 
 	// Args
-	while((opt = getopt(argc, argv, "f:D")) != -1) {
+	while((opt = getopt(argc, argv, "lf:D:")) != -1) {
 		switch(opt) {
+			case 'l':
+				lazy = 1;
+				break;
 			case 'f':
 				fl_path = optarg;
 				break;
 			case 'D':
-				daemonize = 1;
+				daemonize = optarg;
 				break;
 			default:
 				usage(argv[0]);
@@ -144,19 +153,36 @@ int main(int argc, char **argv) {
 		usage(argv[0]);
 		return -1;
 	}
+
+	// handle fork
+	if(daemonize) {
+		pipe(fd);
+		p = fork();
+
+		if(p < 0) {
+			fprintf(stderr, "%s: could not fork\n", PROGRAM_NAME);
+			return -1;
+		}
+		if(p > 0) { // parent
+			close(fd[1]); // close writing end
+			// wait for child to send load success/fail message
+			if(read(fd[0], &return_value, sizeof(return_value)) == sizeof(return_value)) {
+				return return_value;
+			} else {
+				return -1;
+			}
+		}
+		// child
+		close(fd[0]);
+	}
+
+	// allocate
 	data_used = 0;
 	data = malloc(sizeof(struct lock_data) * data_allocated);
 	if(!data) {
 		fprintf(stderr, "%s: initial malloc failed\n", PROGRAM_NAME);
-		return -1;
-	}
-
-	// load arg files
-	for(; optind < argc; optind++) {
-		if(load_file(argv[optind], &data, &data_allocated, &data_used)) {
-			fprintf(stderr, "%s: could not load %s\n", PROGRAM_NAME, argv[optind]);
-			goto EXIT;
-		}
+		return_value = -1;
+		goto EXIT;
 	}
 
 	// load -f files
@@ -164,19 +190,39 @@ int main(int argc, char **argv) {
 		fl_fp = fopen(fl_path, "r");
 		if(!fl_fp) {
 			fprintf(stderr, "%s: could not open %s\n", PROGRAM_NAME, fl_path);
+			return_value = -1;
 			goto EXIT;
 		}
 		while((fl_read = getline(&fl_line, &fl_size, fl_fp)) != -1) {
 			if(fl_line[fl_read-1] == '\n') fl_line[fl_read-1] = 0;
 			if(load_file(fl_line, &data, &data_allocated, &data_used)) {
-				fprintf(stderr, "%s: could not load %s\n", PROGRAM_NAME, fl_line);
-				goto EXIT;
+				return_value = -1;
+				if(!lazy) goto EXIT;
 			}
 		}
 		if(fl_line) {
 			free(fl_line);
 			fl_line = NULL;
 		}
+	}
+
+	// load arg files
+	for(; optind < argc; optind++) {
+		if(load_file(argv[optind], &data, &data_allocated, &data_used)) {
+			return_value = -1;
+			if(!lazy) goto EXIT;
+		}
+	}
+
+	// Message
+	if(return_value == 0) {
+		fprintf(stderr, "%s: All files loaded\n", PROGRAM_NAME);
+	} else {
+		fprintf(stderr, "%s: WARNING, not all files were loaded\n", PROGRAM_NAME);
+	}
+	if(daemonize) {
+		write(fd[1], &return_value, sizeof(return_value));
+		daemonize = NULL; // disabled write() in EXIT section
 	}
 
 	// Sleep
@@ -189,6 +235,9 @@ int main(int argc, char **argv) {
 EXIT:
 	// Cleanup
 	fprintf(stderr, "%s: Exiting Cleanly\n", PROGRAM_NAME);
+	if(daemonize) {
+		write(fd[1], &return_value, sizeof(return_value));
+	}
 	for(i = 0; i < data_used; i++) {
 		if(!data[i].addr) continue;
 		if(!data[i].len) continue;
@@ -202,5 +251,5 @@ EXIT:
 		free(fl_line);
 	}
 	fprintf(stderr, "%s: Done\n", PROGRAM_NAME);
-	return 0;
+	return return_value;
 }
