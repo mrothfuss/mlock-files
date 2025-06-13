@@ -107,6 +107,7 @@ int main(int argc, char **argv) {
 	int fd[2];
 	pid_t p;
 	int return_value = 0;
+	FILE *pid_fp = NULL;
 	// sleep
 	sigset_t sig_mask;
 	// args
@@ -165,6 +166,15 @@ int main(int argc, char **argv) {
 		}
 		if(p > 0) { // parent
 			close(fd[1]); // close writing end
+			// write pid file
+			pid_fp = fopen(daemonize, "w");
+			if(!pid_fp) {
+				fprintf(stderr, "%s: WARNING, could not write pid file %s\n", PROGRAM_NAME, daemonize);
+			} else {
+				fprintf(pid_fp, "%d\n", p);
+				fclose(pid_fp);
+			}
+			
 			// wait for child to send load success/fail message
 			if(read(fd[0], &return_value, sizeof(return_value)) == sizeof(return_value)) {
 				return return_value;
