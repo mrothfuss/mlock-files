@@ -13,6 +13,10 @@
 
 // global status
 static volatile int running = 1;
+static int files_locked = 0;
+static int files_mapped = 0;
+static int files_unlocked = 0;
+static int files_unmapped = 0;
 
 struct lock_data {
 	void *addr;
@@ -22,8 +26,24 @@ struct lock_data {
 };
 
 void signal_handle(int sig) {
-	fprintf(stderr, "%s: Received signal %d\n", PROGRAM_NAME, sig);
+	char *signal_name = NULL;
+
 	running = 0;
+	switch(sig) {
+		case SIGINT:
+			signal_name = "SIGINT";
+			break;
+		case SIGQUIT:
+			signal_name = "SIGQUIT";
+			break;
+		case SIGTERM:
+			signal_name = "SIGTERM";
+			break;
+		default:
+			signal_name = "UNHANDLED";
+			break;
+	}
+	fprintf(stderr, "%s: Received signal %d [%s]\n", PROGRAM_NAME, sig, signal_name);
 }
 
 void usage(char *prog) {
@@ -93,6 +113,9 @@ int load_file(char *path, struct lock_data **data, int *data_allocated, int *dat
 		return -1;
 	}
 	d->locked = 1;
+
+	files_locked++;
+	files_mapped++;
 
 	// force a full read (compute/display something to prevent removal by compiler optimization)
 	crc32sum = crc32(d->addr, d->len);
@@ -223,6 +246,9 @@ int main(int argc, char **argv) {
 	}
 
 	// Message
+	if(files_locked != files_mapped) return_value = -1;
+	fprintf(stderr, "%s: %d files mapped\n", PROGRAM_NAME, files_mapped);
+	fprintf(stderr, "%s: %d files locked\n", PROGRAM_NAME, files_locked);
 	if(return_value == 0) {
 		fprintf(stderr, "%s: All files loaded\n", PROGRAM_NAME);
 	} else {
@@ -242,15 +268,21 @@ int main(int argc, char **argv) {
 
 EXIT:
 	// Cleanup
-	fprintf(stderr, "%s: Exiting Cleanly\n", PROGRAM_NAME);
+	fprintf(stderr, "%s: Terminating\n", PROGRAM_NAME);
 	if(daemonize) {
 		write(fd[1], &return_value, sizeof(return_value));
 	}
 	for(i = 0; i < data_used; i++) {
 		if(!data[i].addr) continue;
 		if(!data[i].len) continue;
-		if(data[i].locked) munlock(data[i].addr, data[i].len);
-		if(data[i].mapped) munmap(data[i].addr, data[i].len);
+		if(data[i].locked) {
+			munlock(data[i].addr, data[i].len);
+			files_unlocked++;
+		}
+		if(data[i].mapped) {
+			munmap(data[i].addr, data[i].len);
+			files_unmapped++;
+		}
 	}
 	if(data) {
 		free(data);
@@ -258,6 +290,16 @@ EXIT:
 	if(fl_line) {
 		free(fl_line);
 	}
-	fprintf(stderr, "%s: Done\n", PROGRAM_NAME);
+	if(files_locked != files_mapped) {
+		fprintf(stderr, "%s: ERROR, mismatch between files locked/mapped\n", PROGRAM_NAME);
+	}
+	fprintf(stderr, "%s: %d/%d files unlocked (%s)\n", PROGRAM_NAME, files_unlocked, files_locked, (files_locked == files_unlocked) ? "OK" : "ERROR");
+	fprintf(stderr, "%s: %d/%d files unmapped (%s)\n", PROGRAM_NAME, files_unmapped, files_mapped, (files_mapped == files_unmapped) ? "OK" : "ERROR");
+	if(return_value == 0 || (files_locked == files_unlocked && files_mapped == files_unmapped && files_locked == files_mapped)) {
+		fprintf(stderr, "%s: Exit Success\n", PROGRAM_NAME);
+	} else {
+		fprintf(stderr, "%s: Exit Failure\n", PROGRAM_NAME);
+		return_value = -1;
+	}
 	return return_value;
 }
