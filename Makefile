@@ -1,21 +1,21 @@
 CFLAGS=-O3 -Wunused-variable
 
-MLOCK_FILES_SRC = main.c crc32.c
-MLOCK_FILES_OBJ = ${MLOCK_FILES_SRC:.c=.o}
+MLOCKD_SRC = mlockd.c crc32.c
+MLOCKD_OBJ = ${MLOCKD_SRC:.c=.o}
 
-all: mlock-files
+all: mlockd
 
 options:
 	@echo build options:
 	@echo "CFLAGS	= ${CFLAGS}"
 	@echo "CC	= ${CC}"
 
-mlock-files: ${MLOCK_FILES_OBJ}
-	@echo ${CC} -o $@ ${MLOCK_FILES_OBJ} ${LDFLAGS}
-	@${CC} -o $@ ${MLOCK_FILES_OBJ} ${LDFLAGS}
+mlockd: ${MLOCKD_OBJ}
+	@echo ${CC} -o $@ ${MLOCKD_OBJ} ${LDFLAGS}
+	@${CC} -o $@ ${MLOCKD_OBJ} ${LDFLAGS}
 
 clean:
 	@echo cleaning
-	@rm -f mlock-files ${MLOCK_FILES_OBJ}
+	@rm -f mlockd ${MLOCKD_OBJ}
 
 .PHONY: all options clean

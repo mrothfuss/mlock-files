@@ -9,7 +9,7 @@
 
 #include "crc32.h"
 
-#define PROGRAM_NAME "mlock-files"
+#define PROGRAM_NAME "mlockd"
 
 // global status
 static volatile int running = 1;
