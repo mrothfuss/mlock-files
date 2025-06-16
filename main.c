@@ -7,6 +7,8 @@
 #include <sys/mman.h>
 #include <stdint.h>
 
+#include "crc32.h"
+
 #define PROGRAM_NAME "mlock-files"
 
 // global status
@@ -36,9 +38,7 @@ int load_file(char *path, struct lock_data **data, int *data_allocated, int *dat
 	struct lock_data *d;
 	int fd;
 	struct stat st;
-	uint64_t sum = 0;
-	int i;
-
+	uint32_t crc32sum = 0;
 
 	if(*data_used == *data_allocated) {
 		if(*data_allocated == 0)
@@ -95,10 +95,8 @@ int load_file(char *path, struct lock_data **data, int *data_allocated, int *dat
 	d->locked = 1;
 
 	// force a full read (compute/display something to prevent removal by compiler optimization)
-	for(i = 0; i < d->len; i++) {
-		sum += ((uint8_t*)d->addr)[i];
-	}
-	fprintf(stderr, "%s[%d]: %s loaded (sum: %08lX)\n", PROGRAM_NAME, (*data_used)-1, path, sum);
+	crc32sum = crc32(d->addr, d->len);
+	fprintf(stderr, "%s[%d]: %s loaded (CRC32: %08X)\n", PROGRAM_NAME, (*data_used)-1, path, crc32sum);
 	return 0;
 }
 

@@ -1,6 +1,6 @@
 CFLAGS=-O3 -Wunused-variable
 
-MLOCK_FILES_SRC = main.c
+MLOCK_FILES_SRC = main.c crc32.c
 MLOCK_FILES_OBJ = ${MLOCK_FILES_SRC:.c=.o}
 
 all: mlock-files
